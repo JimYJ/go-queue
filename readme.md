@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/JimYJ/go-queue.svg?branch=master)](https://travis-ci.org/JimYJ/go-queue)
+
 # go-queue
 go-queue is common queue for concurrency(go-queue 是一个通用的并发通道，可以自定义同时并发数和自定义并发任务)
 
@@ -19,14 +21,17 @@ import "github.com/JimYJ/go-queue"
 
 ```go
 func main() {
-queue.InitQueue(10, true)//true means main goroutine will wait that all queue done 
-job := new(queue.Job)
-job.ID = int64(i)
-job.FuncQueue = youfunc
-job.Payload = []interface{}{100, 50}
-queue.JobQueue <- job
-queue.Done()
+    queue.InitQueue(10, true)//true means main goroutine will wait that all queue done 
+    for i:=0;i<1000;i++{
+        job := new(queue.Job)
+        job.ID = int64(i)
+        job.FuncQueue = youfunc
+        job.Payload = []interface{}{100, 50}
+        queue.JobQueue <- job
+    }
+    queue.Done()
 }
+
 func youfunc(value ...interface){ //you func must meet type Func func(value ...interface{})
     //dosomething
 }
