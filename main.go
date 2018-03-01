@@ -41,12 +41,12 @@ func test3() {
 
 func test4(value ...interface{}) {
 	log.Println(value...)
-	time.Sleep(5 * time.Second)
+	time.Sleep(50 * time.Second)
 }
 
 func main() {
-	queue.InitQueue(10)
-	for i := 0; i < 1000; i++ {
+	queue.InitQueue(10, true)
+	for i := 0; i < 100; i++ {
 		job := new(queue.Job)
 		job.ID = int64(i)
 		job.FuncQueue = test4
@@ -54,5 +54,6 @@ func main() {
 		queue.JobQueue <- job
 		log.Println("协程数：", runtime.NumGoroutine())
 	}
+	queue.Done()
 	log.Println("最终协程数：", runtime.NumGoroutine())
 }

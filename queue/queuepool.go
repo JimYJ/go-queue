@@ -1,7 +1,9 @@
 package queue
 
 import (
+	"context"
 	"log"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -11,36 +13,35 @@ type Func func(value ...interface{})
 
 var (
 	defaultTimeOut = 3 * time.Second
-	// HighPriority   = 1
-	// MiddlePriority = 2
-	// LowPriority    = 3
-	once sync.Once
+	once           sync.Once
 	//JobQueue 任务通道
 	JobQueue chan *Job
 	//QueuePool 队列池
-	QueuePool *queuePool
+	QueuePool  *queuePool
+	finishLock bool
+	wg         sync.WaitGroup
 )
 
 type worker struct {
-	ID      int       //队列池通道ID
-	job     chan *Job //并发任务结构体
-	timeOut time.Duration
+	ID      int           //队列池通道ID
+	job     chan *Job     //并发任务结构体
+	timeOut time.Duration //超时时间，可自定义
 	quit    chan bool
 }
 
-//Job 任务
+//Job 任务结构
 type Job struct {
-	ID        int64
-	FuncQueue Func
-	Payload   []interface{}
+	ID        int64         //任务ID
+	FuncQueue Func          //任务函数
+	Payload   []interface{} //任务参数
 }
 
 type queuePool struct {
-	workerChan chan *worker
+	workerChan chan *worker //队列池
 }
 
 //InitQueue 初始化队列
-func InitQueue(maxConcurrent int) {
+func InitQueue(maxConcurrent int, waitLock bool) {
 	once.Do(func() {
 		QueuePool = &queuePool{
 			workerChan: make(chan *worker, maxConcurrent),
@@ -56,6 +57,7 @@ func InitQueue(maxConcurrent int) {
 			worker.start()
 			log.Printf("worker %d started", worker.ID)
 		}
+		finishLock = waitLock
 		dispatch()
 	})
 }
@@ -63,57 +65,67 @@ func InitQueue(maxConcurrent int) {
 func (w *worker) start() {
 	go func() {
 		QueuePool.workerChan <- w
+		id := make(chan int, 1)
+		var ctx context.Context
 		for {
-			// t := time.NewTimer(w.timeOut)
 			select {
 			case job := <-w.job:
 				log.Printf("worker: %d, will handle job: %d", w.ID, (*job).ID)
-				go w.handleJob(job)
-			case quit := <-w.quit:
-				QueuePool.workerChan <- w
-				log.Println("quit:", quit)
-				if quit {
-					log.Printf("worker: %d, will stop.", w.ID)
-					return
-				}
+				go w.handleJob(ctx, job, id)
 			}
-			// select {
-			// case <-t.C:
-			// 	QueuePool.workerChan <- w
-			// 	log.Printf("woker: %d is timeout...", w.ID)
-			// }
-			// t.Stop()
 		}
 	}()
 }
 
-func (w *worker) handleJob(job *Job) {
-	go func() {
-		time.Sleep(3 * time.Second)
-		log.Printf("job: %d in woker: %d is timeout...", (*job).ID, w.ID)
-		// QueuePool.workerChan <- w
-		w.quit <- true
-	}()
+func (w *worker) handleJob(ctx context.Context, job *Job, id chan int) {
+	if finishLock {
+		wg.Add(1)
+		defer wg.Done()
+	}
+	ctx, _ = context.WithTimeout(context.Background(), w.timeOut)
 	queuefunc := (*job).FuncQueue
 	value := (*job).Payload
-	queuefunc((*job).ID, value)
-	log.Printf("JobID:%d", (*job).ID)
-	w.quit <- false
+	go func() {
+		queuefunc((*job).ID, value)
+		select {
+		case <-ctx.Done():
+			runtime.Goexit()
+		default:
+			w.quit <- false
+		}
+	}()
+	select {
+	case quit := <-w.quit:
+		QueuePool.workerChan <- w
+		log.Println("quit:", quit)
+		runtime.Goexit()
+	case <-ctx.Done():
+		QueuePool.workerChan <- w
+		log.Printf("job: %d in woker: %d is timeout...", (*job).ID, w.ID)
+		runtime.Goexit()
+	}
 }
 
-//Dispatch 监听JobQueue获取任务
+//dispatch 监听JobQueue获取任务
 func dispatch() {
 	go func() {
 		for {
 			select {
 			case job := <-JobQueue:
-				go func(job *Job) {
-					// log.Printf("trying to dispatch job %d ...", (*job).ID)
-					worker := <-QueuePool.workerChan
-					worker.job <- job
-					// log.Printf("job %d dispatched successfully", (*job).ID)
-				}(job)
+				// go func(job *Job) {
+				// log.Printf("trying to dispatch job %d ...", (*job).ID)
+				worker := <-QueuePool.workerChan
+				worker.job <- job
+				// log.Printf("job %d dispatched successfully", (*job).ID)
+				// }(job)
 			}
 		}
 	}()
+}
+
+//Done 监听队列是否执行结束
+func Done() {
+	if finishLock {
+		wg.Wait()
+	}
 }
