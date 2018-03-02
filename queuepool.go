@@ -87,7 +87,7 @@ func (w *worker) handleJob(ctx context.Context, job *Job, id chan int) {
 	queuefunc := (*job).FuncQueue
 	value := (*job).Payload
 	go func() {
-		queuefunc((*job).ID, value)
+		queuefunc(value...)
 		select {
 		case <-ctx.Done():
 			runtime.Goexit()
