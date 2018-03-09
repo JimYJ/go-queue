@@ -70,22 +70,24 @@ func (w *worker) start() {
 		QueuePool.workerChan <- w
 		id := make(chan int, 1)
 		var ctx context.Context
+		var cancel context.CancelFunc
 		for {
 			select {
 			case job := <-w.job:
 				showLog("worker: %d, will handle job: %d", w.ID, (*job).ID)
-				ctx, _ = context.WithTimeout(context.Background(), w.timeOut)
-				go w.handleJob(ctx, job, id)
+				ctx, cancel = context.WithTimeout(context.Background(), w.timeOut)
+				go w.handleJob(ctx, job, id, cancel)
 			}
 		}
 	}()
 }
 
-func (w *worker) handleJob(ctx context.Context, job *Job, id chan int) {
+func (w *worker) handleJob(ctx context.Context, job *Job, id chan int, cancel context.CancelFunc) {
 	if finishLock {
 		wg.Add(1)
 		defer wg.Done()
 	}
+	defer cancel()
 	queuefunc := (*job).FuncQueue
 	value := (*job).Payload
 	go func() {
