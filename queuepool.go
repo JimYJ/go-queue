@@ -17,9 +17,11 @@ var (
 	//JobQueue 任务通道
 	JobQueue chan *Job
 	//QueuePool 队列池
-	QueuePool  *queuePool
-	finishLock bool
-	wg         sync.WaitGroup
+	QueuePool          *queuePool
+	finishLock         bool
+	wg                 sync.WaitGroup
+	concurrentInterval time.Duration
+	useInterval        = false
 )
 
 type worker struct {
@@ -71,7 +73,10 @@ func (w *worker) start() {
 			select {
 			case job := <-w.job:
 				log.Printf("worker: %d, will handle job: %d", w.ID, (*job).ID)
-				go w.handleJob(ctx, job, id)
+				w.handleJob(ctx, job, id)
+				if useInterval {
+					time.Sleep(concurrentInterval)
+				}
 			}
 		}
 	}()
@@ -127,5 +132,13 @@ func dispatch() {
 func Done() {
 	if finishLock {
 		wg.Wait()
+	}
+}
+
+//SetConcurrentInterval 设置并发时间间隔
+func SetConcurrentInterval(interval time.Duration) {
+	if interval > 0 {
+		concurrentInterval = interval
+		useInterval = true
 	}
 }
