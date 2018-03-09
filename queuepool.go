@@ -74,11 +74,8 @@ func (w *worker) start() {
 			select {
 			case job := <-w.job:
 				showLog("worker: %d, will handle job: %d", w.ID, (*job).ID)
+				ctx, _ = context.WithTimeout(context.Background(), w.timeOut)
 				go w.handleJob(ctx, job, id)
-				if useInterval {
-					time.Sleep(concurrentInterval)
-				}
-
 			}
 		}
 	}()
@@ -89,7 +86,6 @@ func (w *worker) handleJob(ctx context.Context, job *Job, id chan int) {
 		wg.Add(1)
 		defer wg.Done()
 	}
-	ctx, _ = context.WithTimeout(context.Background(), w.timeOut)
 	queuefunc := (*job).FuncQueue
 	value := (*job).Payload
 	go func() {
@@ -103,10 +99,12 @@ func (w *worker) handleJob(ctx context.Context, job *Job, id chan int) {
 	}()
 	select {
 	case quit := <-w.quit:
+		waitInterval()
 		QueuePool.workerChan <- w
 		showLog("quit:%t", quit)
 		runtime.Goexit()
 	case <-ctx.Done():
+		waitInterval()
 		QueuePool.workerChan <- w
 		showLog("job: %d in woker: %d is timeout...", (*job).ID, w.ID)
 		runtime.Goexit()
@@ -152,4 +150,10 @@ func SetConcurrentInterval(interval time.Duration) {
 //Debug 打开日志
 func Debug() {
 	debug = true
+}
+
+func waitInterval() {
+	if useInterval {
+		time.Sleep(concurrentInterval)
+	}
 }
