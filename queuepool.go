@@ -22,6 +22,7 @@ var (
 	wg                 sync.WaitGroup
 	concurrentInterval time.Duration
 	useInterval        = false
+	debug              = false
 )
 
 type worker struct {
@@ -57,7 +58,7 @@ func InitQueue(maxConcurrent int, waitLock bool) {
 				quit:    make(chan bool),
 			}
 			worker.start()
-			log.Printf("worker %d started", worker.ID)
+			showLog("worker %d started", worker.ID)
 		}
 		finishLock = waitLock
 		dispatch()
@@ -72,11 +73,12 @@ func (w *worker) start() {
 		for {
 			select {
 			case job := <-w.job:
-				log.Printf("worker: %d, will handle job: %d", w.ID, (*job).ID)
+				showLog("worker: %d, will handle job: %d", w.ID, (*job).ID)
 				w.handleJob(ctx, job, id)
 				if useInterval {
 					time.Sleep(concurrentInterval)
 				}
+
 			}
 		}
 	}()
@@ -91,7 +93,7 @@ func (w *worker) handleJob(ctx context.Context, job *Job, id chan int) {
 	queuefunc := (*job).FuncQueue
 	value := (*job).Payload
 	go func() {
-		queuefunc((*job).ID, value)
+		queuefunc(value...)
 		select {
 		case <-ctx.Done():
 			runtime.Goexit()
@@ -102,11 +104,11 @@ func (w *worker) handleJob(ctx context.Context, job *Job, id chan int) {
 	select {
 	case quit := <-w.quit:
 		QueuePool.workerChan <- w
-		log.Println("quit:", quit)
+		showLog("quit:%t", quit)
 		runtime.Goexit()
 	case <-ctx.Done():
 		QueuePool.workerChan <- w
-		log.Printf("job: %d in woker: %d is timeout...", (*job).ID, w.ID)
+		showLog("job: %d in woker: %d is timeout...", (*job).ID, w.ID)
 		runtime.Goexit()
 	}
 }
@@ -117,15 +119,19 @@ func dispatch() {
 		for {
 			select {
 			case job := <-JobQueue:
-				// go func(job *Job) {
-				// log.Printf("trying to dispatch job %d ...", (*job).ID)
+				showLog("trying to dispatch job %d ...", (*job).ID)
 				worker := <-QueuePool.workerChan
 				worker.job <- job
-				// log.Printf("job %d dispatched successfully", (*job).ID)
-				// }(job)
+				showLog("job %d dispatched successfully", (*job).ID)
 			}
 		}
 	}()
+}
+
+func showLog(str string, value ...interface{}) {
+	if debug {
+		log.Printf(str, value...)
+	}
 }
 
 //Done 监听队列是否执行结束
@@ -141,4 +147,9 @@ func SetConcurrentInterval(interval time.Duration) {
 		concurrentInterval = interval
 		useInterval = true
 	}
+}
+
+//Debug 打开日志
+func Debug() {
+	debug = true
 }
