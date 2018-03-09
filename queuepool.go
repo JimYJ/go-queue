@@ -74,7 +74,7 @@ func (w *worker) start() {
 			select {
 			case job := <-w.job:
 				showLog("worker: %d, will handle job: %d", w.ID, (*job).ID)
-				w.handleJob(ctx, job, id)
+				go w.handleJob(ctx, job, id)
 				if useInterval {
 					time.Sleep(concurrentInterval)
 				}
