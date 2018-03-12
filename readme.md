@@ -22,6 +22,7 @@ import "github.com/JimYJ/go-queue"
 ```go
 func main() {
     queue.InitQueue(10, true)//true means main goroutine will wait that all queue done 
+    queue.SetConcurrentInterval(1 * time.Millisecond)// set interval time for each concurrent 
     for i:=0;i<1000;i++{
         job := new(queue.Job)
         job.ID = int64(i)
