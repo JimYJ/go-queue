@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"context"
 	"log"
 	"runtime"
 	"sync"
@@ -69,34 +68,32 @@ func (w *worker) start() {
 	go func() {
 		QueuePool.workerChan <- w
 		id := make(chan int, 1)
-		var ctx context.Context
-		var cancel context.CancelFunc
 		for {
 			select {
 			case job := <-w.job:
 				showLog("worker: %d, will handle job: %d", w.ID, (*job).ID)
-				ctx, cancel = context.WithTimeout(context.Background(), w.timeOut)
-				go w.handleJob(ctx, job, id, cancel)
+				w.handleJob(job, id)
 			}
 		}
 	}()
 }
 
-func (w *worker) handleJob(ctx context.Context, job *Job, id chan int, cancel context.CancelFunc) {
+func (w *worker) handleJob(job *Job, id chan int) {
 	if finishLock {
 		wg.Add(1)
 		defer wg.Done()
 	}
-	defer cancel()
+	timeout := time.After(w.timeOut)
 	queuefunc := (*job).FuncQueue
 	value := (*job).Payload
 	go func() {
 		queuefunc(value...)
 		select {
-		case <-ctx.Done():
+		case <-timeout:
 			runtime.Goexit()
 		default:
 			w.quit <- false
+			runtime.Goexit()
 		}
 	}()
 	select {
@@ -104,12 +101,12 @@ func (w *worker) handleJob(ctx context.Context, job *Job, id chan int, cancel co
 		waitInterval()
 		QueuePool.workerChan <- w
 		showLog("quit:%t", quit)
-		runtime.Goexit()
-	case <-ctx.Done():
+		// runtime.Goexit()
+	case <-timeout:
 		waitInterval()
 		QueuePool.workerChan <- w
 		showLog("job: %d in woker: %d is timeout...", (*job).ID, w.ID)
-		runtime.Goexit()
+		// runtime.Goexit()
 	}
 }
 
@@ -158,4 +155,9 @@ func waitInterval() {
 	if useInterval {
 		time.Sleep(concurrentInterval)
 	}
+}
+
+//Push 推送任务
+func Push(job *Job) {
+	JobQueue <- job
 }
