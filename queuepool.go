@@ -68,28 +68,29 @@ func (w *worker) start() {
 	go func() {
 		QueuePool.workerChan <- w
 		id := make(chan int, 1)
+		timeout := time.NewTimer(w.timeOut)
 		for {
+			timeout.Reset(w.timeOut)
 			select {
 			case job := <-w.job:
 				showLog("worker: %d, will handle job: %d", w.ID, (*job).ID)
-				w.handleJob(job, id)
+				w.handleJob(timeout, job, id)
 			}
 		}
 	}()
 }
 
-func (w *worker) handleJob(job *Job, id chan int) {
+func (w *worker) handleJob(timeout *time.Timer, job *Job, id chan int) {
 	if finishLock {
 		wg.Add(1)
 		defer wg.Done()
 	}
-	timeout := time.After(w.timeOut)
 	queuefunc := (*job).FuncQueue
 	value := (*job).Payload
 	go func() {
 		queuefunc(value...)
 		select {
-		case <-timeout:
+		case <-timeout.C:
 			runtime.Goexit()
 		default:
 			w.quit <- false
@@ -102,7 +103,7 @@ func (w *worker) handleJob(job *Job, id chan int) {
 		QueuePool.workerChan <- w
 		showLog("quit:%t", quit)
 		// runtime.Goexit()
-	case <-timeout:
+	case <-timeout.C:
 		waitInterval()
 		QueuePool.workerChan <- w
 		showLog("job: %d in woker: %d is timeout...", (*job).ID, w.ID)
