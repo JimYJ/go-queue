@@ -22,19 +22,22 @@ import "github.com/JimYJ/go-queue"
 
 ```go
 func main() {
-    queue.InitQueue(10, true)//true means main goroutine will wait that all queue done 
-    queue.SetConcurrentInterval(1 * time.Millisecond)// set interval time for each concurrent， default 0
-    for i:=0;i<1000;i++{
-        job := new(queue.Job)
-        job.ID = int64(i)
-        job.FuncQueue = youfunc
-        job.Payload = []interface{}{100, 50}
-        queue.JobQueue <- job
-    }
-    queue.Done()
+	queue.Debug()
+	queue.InitQueue(2, true, true)                    // frist param means max concurrent,if second param is true, means main goroutine will wait that all queue done. if third param is true, means every error or timeout will retry 3 times
+	queue.SetConcurrentInterval(1 * time.Millisecond) // set interval time for each concurrent， default 0
+	for i := 0; i < 10; i++ {
+		job := new(queue.Job)
+		job.ID = int64(i)
+		job.FuncQueue = youfunc
+		job.Payload = []interface{}{100, 50}
+		queue.Push(job)
+	}
+	queue.Done()
+	log.Println(queue.FailList)
 }
 
-func youfunc(value ...interface){ //you func must meet type Func func(value ...interface{})
-    //dosomething
+func youfunc(value ...interface{}) error { //you func must meet type Func func(value ...interface{})error
+	//dosomething
+	return errors.New("error info")
 }
 ```

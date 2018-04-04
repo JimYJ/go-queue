@@ -8,7 +8,7 @@ import (
 )
 
 //Func 队列函数类型
-type Func func(value ...interface{})
+type Func func(value ...interface{}) error
 
 var (
 	defaultTimeOut = 3 * time.Second
@@ -16,12 +16,18 @@ var (
 	//JobQueue 任务通道
 	JobQueue chan *Job
 	//QueuePool 队列池
-	QueuePool          *queuePool
+	QueuePool  *queuePool
+	retryQueue chan *Job
+	//FailList 失败列表
+	FailList           = make([]*Job, 0)
 	finishLock         bool
 	wg                 sync.WaitGroup
 	concurrentInterval time.Duration
 	useInterval        = false
 	debug              = false
+	retry              = false
+	maxRetryTimes      = 3
+	retryInterval      = 3 * time.Second
 )
 
 type worker struct {
@@ -33,9 +39,10 @@ type worker struct {
 
 //Job 任务结构
 type Job struct {
-	ID        int64         //任务ID
-	FuncQueue Func          //任务函数
-	Payload   []interface{} //任务参数
+	ID         int64         //任务ID
+	FuncQueue  Func          //任务函数
+	Payload    []interface{} //任务参数
+	RetryTimes int           //重试次数
 }
 
 type queuePool struct {
@@ -43,12 +50,15 @@ type queuePool struct {
 }
 
 //InitQueue 初始化队列
-func InitQueue(maxConcurrent int, waitLock bool) {
+func InitQueue(maxConcurrent int, waitLock bool, useRetry bool) {
 	once.Do(func() {
 		QueuePool = &queuePool{
 			workerChan: make(chan *worker, maxConcurrent),
 		}
 		JobQueue = make(chan *Job, maxConcurrent)
+		if useRetry {
+			retryQueue = make(chan *Job, maxConcurrent)
+		}
 		for i := 0; i < maxConcurrent; i++ {
 			worker := &worker{
 				ID:      i,
@@ -60,6 +70,7 @@ func InitQueue(maxConcurrent int, waitLock bool) {
 			showLog("worker %d started", worker.ID)
 		}
 		finishLock = waitLock
+		retry = useRetry
 		dispatch()
 	})
 }
@@ -88,23 +99,29 @@ func (w *worker) handleJob(timeout *time.Timer, job *Job, id chan int) {
 	queuefunc := (*job).FuncQueue
 	value := (*job).Payload
 	go func() {
-		queuefunc(value...)
+		err := queuefunc(value...)
 		select {
 		case <-timeout.C:
 			runtime.Goexit()
 		default:
-			w.quit <- false
+			if err != nil {
+				w.quit <- true
+			} else {
+				w.quit <- false
+			}
 			runtime.Goexit()
 		}
 	}()
 	select {
 	case quit := <-w.quit:
 		waitInterval()
+		go retryHandle(quit, job)
 		QueuePool.workerChan <- w
 		showLog("quit:%t", quit)
 		// runtime.Goexit()
 	case <-timeout.C:
 		waitInterval()
+		go retryHandle(true, job)
 		QueuePool.workerChan <- w
 		showLog("job: %d in woker: %d is timeout...", (*job).ID, w.ID)
 		// runtime.Goexit()
@@ -118,6 +135,11 @@ func dispatch() {
 			select {
 			case job := <-JobQueue:
 				showLog("trying to dispatch job %d ...", (*job).ID)
+				worker := <-QueuePool.workerChan
+				worker.job <- job
+				showLog("job %d dispatched successfully", (*job).ID)
+			case job := <-retryQueue:
+				showLog("retrying to dispatch job %d for %d times ...", (*job).ID, (*job).RetryTimes)
 				worker := <-QueuePool.workerChan
 				worker.job <- job
 				showLog("job %d dispatched successfully", (*job).ID)
@@ -161,4 +183,20 @@ func waitInterval() {
 //Push 推送任务
 func Push(job *Job) {
 	JobQueue <- job
+}
+
+func retryHandle(quit bool, job *Job) {
+	if finishLock {
+		wg.Add(1)
+		defer wg.Done()
+	}
+	if quit && retry {
+		(*job).RetryTimes++
+		if (*job).RetryTimes <= maxRetryTimes {
+			time.Sleep(retryInterval)
+			retryQueue <- job
+		} else {
+			FailList = append(FailList, job)
+		}
+	}
 }
