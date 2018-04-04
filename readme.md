@@ -23,9 +23,9 @@ import "github.com/JimYJ/go-queue"
 ```go
 func main() {
 	queue.Debug() // show log
-    queue.InitQueue(2, true, true)                    // frist param means max concurrent,if second param is true.
-                                                      //means main goroutine will wait that all queue done. 
-                                                      //if third param is true, means every error or timeout will retry 3 times.
+    queue.InitQueue(2, true, true)                    // frist param means max concurrent.
+                                                      // if second param is true,means main goroutine will wait that all queue done. 
+                                                      // if third param is true, means every error or timeout will retry 3 times.
 	queue.SetConcurrentInterval(1 * time.Millisecond) // set interval time for each concurrent， default 0
 	for i := 0; i < 10; i++ {
 		job := new(queue.Job)
