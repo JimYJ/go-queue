@@ -198,5 +198,7 @@ func retryHandle(quit bool, job *Job) {
 		} else {
 			FailList = append(FailList, job)
 		}
+	} else if quit && !retry {
+		FailList = append(FailList, job)
 	}
 }
